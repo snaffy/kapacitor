@@ -1,0 +1,121 @@
+var host string
+var instance string
+var type string
+var type_instance string
+
+var cron = '*/2 * * * * *'
+var period = 4m
+var accpt_data_missing_t = 5m
+var email_channel list
+var number_of_possible_failures = 0
+
+var email_subject = ''
+var email_details = ''
+var email_details_crit = ''
+var email_details_ok = ''
+
+var crit lambda
+var database = 'collectd'
+var rp = 'autogen'
+
+var measurement string
+var executable_script_path = ''
+var remote_host_ip = ''
+var script_args = ''
+
+var outputDB = 'chronograf'
+var outputRP = 'autogen'
+var outputMeasurement = 'alerts'
+
+var idTag = 'alertID'
+var levelTag = 'level'
+var triggerType = 'custom'
+var idVar = ':{{.Group}}'
+
+var messageField = 'message'
+var durationField = 'duration'
+var alertName = instance + '_' + type + '_' + type_instance
+
+var data = batch
+    |query(
+        'SELECT LAST("value") as "value"
+             FROM "' + database + '"."' + rp + '"."' + measurement +'"
+         	WHERE
+         	host= \'' +
+                 host +
+                 '\'
+         	AND type_instance= \'' +
+                 type_instance +
+                 '\'
+             AND type=\'' +
+                 type +
+                 '\'
+         	AND instance = \'' +
+                 instance +
+                 '\''
+    )
+        .period(period)
+        .cron(cron)
+        .align()
+        .groupBy(*)
+
+
+var alert = data
+    |log()
+        .level('DEBUG')
+    |stateCount(lambda: crit)
+    |alert()
+        .stateChangesOnly()
+        .crit(lambda: "state_count" > number_of_possible_failures)
+        .message(email_subject + ' {{ .Level}}')
+        .idTag(idTag)
+        .levelTag(levelTag)
+        .id(idVar)
+        .messageField(messageField)
+        .durationField(durationField)
+        .details(
+            '''
+            <h2> Task name : {{.TaskName}} </h2>
+            <b>  Level : {{ .Level }} </b>
+            <b>  Measurements : </b>{{.Name}}
+            <p style="color:red"> Value :{{index .Fields "value"}}</p>
+		{{ if eq .Level "OK" }}
+		<b>''' +
+            email_details_ok +
+            '''</b><br>
+		{{ else }}
+		<b>''' +
+            email_details_crit +
+            '''</b><br>
+		{{ end }} '''+email_details+'''
+            <br><br>Time :{{.Time }}
+	'''
+        )
+        .email(email_channel)
+        .exec(executable_script_path, remote_host_ip, script_args)
+
+alert
+    |influxDBOut()
+        .create()
+        .database(outputDB)
+        .retentionPolicy(outputRP)
+        .measurement(outputMeasurement)
+        .tag('alertName', alertName)
+        .tag('triggerType', triggerType)
+
+alert
+    |httpOut('output')
+
+var trigger = data
+    |deadman(0.0, accpt_data_missing_t)
+        .stateChangesOnly()
+        .message('Deadman - {{index .Tags "host"}} - {{.Level}}')
+        .details('''
+            <h2> Task name : {{.TaskName}} </h2>
+            <b>  ID : {{.ID}} </b>
+            <b>  Level : {{ .Level }} </b>
+            <p style="color:red"> Emitted :{{index .Fields "emitted"}}</p>
+            <br><br>Time :{{.Time }}
+        ''')
+        .email(email_channel)
+
