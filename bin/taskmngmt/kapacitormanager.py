@@ -1,28 +1,32 @@
 import os
+
 from pip import logger
 from execution.executor import ExecuteCommand, Executor
+from taskmngmt.manager import Task, TaskManager
 
 
-class TaskManager:
+class KapacitorTaskManager(TaskManager):
     output_dir_name = "output"
 
     def __init__(self, alerts_dir_conf_path):
-        self.alerts_dir_conf_path = alerts_dir_conf_path
-        self.output_path = os.path.join(self.alerts_dir_conf_path, self.output_dir_name)
+        self.output_path = os.path.join(alerts_dir_conf_path, self.output_dir_name)
+        super().__init__(self.output_path)
 
-    def get_task_list(self):
-        alet_conf_list = list()
-        if os.path.exists(self.output_path):
-            for entry in os.listdir(self.output_path):
-                alet_conf_list.append(os.path.join(self.output_path,entry))
-        return alet_conf_list
-
-    def create_alerts(self):
+    def create(self):
         for item in self.get_task_list():
-            Task(item).create()
+            KapacitorTask(item).create()
+
+class KapacitorTemplateManager(TaskManager):
+
+    def __init__(self, path_to_template_dir):
+        super().__init__(path_to_template_dir)
+
+    def create(self):
+        for item in self.get_task_list():
+            KapacitorTemplate(item).create()
 
 
-class Task:
+class KapacitorTask(Task):
     def __init__(self, conf_path):
         self.conf_path = conf_path
         # TODO generwoac tez informacje o bazie danych
@@ -47,6 +51,21 @@ class Task:
         {} 
         {}""".format(self.db_rp, self.conf_path, self.task_name, self.template_name)
 
+class KapacitorTemplate(Task):
+    def __init__(self, template_path, type="batch"):
+        self.type = type
+        self.template_path = template_path
+        self.template_name = os.path.basename(template_path).replace(".tick", "")
+
+    def create(self):
+        cmd = """kapacitor define-template {} -tick {} -type {}""".format(self.template_name, self.template_path,
+                                                                          self.type)
+        print(cmd)
+        # result = Executor().execute_cmd_command(cmd)
+        # if result != 0:
+        #     logger.error("Failure during create a template: {}".format(self.template_name))
+        # else:
+        #     logger.info("A new alert [ {} ] has been successfully created".format(self.template_name))
 
 class StringExtractor:
     @staticmethod
@@ -58,12 +77,3 @@ class StringExtractor:
         adjusted_pos_a = pos_a + len(a)
         if adjusted_pos_a >= pos_b: return ""
         return self[adjusted_pos_a:pos_b]
-
-
-conf_path = "C:\\Projects\\monitoring_root\\monitoring_client\\rva\\kapacitor\\vehicle-event-router-staging-yaml-concept-flat-structure\\output\\vehicle-event-router-staging-yaml-concept-flat-structure_dbi_value_events_gauge_event_archiving__progress_template.json"
-alert_path = "C:\\Projects\\monitoring_root\\monitoring_client\\rva\\kapacitor\\vehicle-event-router-staging-yaml-concept-flat-structure"
-
-x = TaskManager(alert_path)
-# list = x.get_task_list()
-# print(list)
-x.create_alerts()
